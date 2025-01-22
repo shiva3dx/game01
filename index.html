@@ -3,28 +3,71 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AR Asthma Viewer</title>
-  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
-  <style>
-    body {
-      margin: 0;
-    }
-    model-viewer {
-      width: 100%;
-      height: 100vh;
-    }
-  </style>
+  <title>Voice Controlled AR Game</title>
+  <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/aframe-ar@1.2.0/dist/aframe-ar.min.js"></script>
 </head>
 <body>
-  <model-viewer 
-    src="asthama.glb" 
-    ios-src="asthama.usdz"
-    ar 
-    ar-modes="webxr scene-viewer quick-look" 
-    camera-controls 
-    autoplay 
-    animation-name="default" 
-    exposure="1">
-  </model-viewer>
+  <a-scene embedded arjs>
+    <!-- Camera -->
+    <a-camera position="0 0 0" look-controls>
+      <a-light type="directional" color="#FFF" intensity="0.8" position="0 4 1"></a-light>
+    </a-camera>
+
+    <!-- Ground -->
+    <a-plane position="0 0 0" rotation="-90 0 0" width="10" height="10" color="#7BC8A4"></a-plane>
+
+    <!-- Character -->
+    <a-box id="character" position="0 0.5 0" depth="0.5" height="0.5" width="0.5" color="#FF5733"></a-box>
+
+    <!-- Platforms -->
+    <a-box position="-1 0.25 -1" depth="2" height="0.5" width="1" color="#3498DB"></a-box>
+    <a-box position="1 0.25 -2" depth="2" height="0.5" width="1" color="#E74C3C"></a-box>
+    <a-box position="-2 0.25 -3" depth="2" height="0.5" width="1" color="#2ECC71"></a-box>
+  </a-scene>
+
+  <script>
+    const character = document.querySelector('#character');
+
+    // Voice Capture Setup
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+      const microphone = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      microphone.connect(analyser);
+      analyser.fftSize = 512;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      function updateCharacter() {
+        analyser.getByteFrequencyData(dataArray);
+        const volume = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+
+        // Map volume to jump height
+        const jumpHeight = Math.min(volume / 30, 3); // Scale and cap the jump height
+
+        // Animate jump
+        character.setAttribute('animation', {
+          property: 'position',
+          to: `0 ${jumpHeight + 0.5} 0`,
+          dur: 300,
+          easing: 'easeOutCubic',
+        });
+
+        setTimeout(() => {
+          character.setAttribute('animation', {
+            property: 'position',
+            to: '0 0.5 0',
+            dur: 300,
+            easing: 'easeInCubic',
+          });
+        }, 300);
+      }
+
+      setInterval(updateCharacter, 200); // Check audio levels every 200ms
+    }).catch((err) => {
+      console.error('Microphone access denied:', err);
+    });
+  </script>
 </body>
 </html>
