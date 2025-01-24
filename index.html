@@ -1,73 +1,249 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voice Controlled AR Game</title>
-  <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/aframe-ar@1.2.0/dist/aframe-ar.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Platform Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            flex-direction: column;
+        }
+
+        #game-container {
+            position: relative;
+        }
+
+        #gameCanvas {
+            background-color: #87CEEB;
+            border: 1px solid #000;
+        }
+
+        #controls {
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 10px;
+            margin: 10px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
 </head>
 <body>
-  <a-scene embedded arjs>
-    <!-- Camera -->
-    <a-camera position="0 0 0" look-controls>
-      <a-light type="directional" color="#FFF" intensity="0.8" position="0 4 1"></a-light>
-    </a-camera>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
 
-    <!-- Ground -->
-    <a-plane position="0 0 0" rotation="-90 0 0" width="10" height="10" color="#7BC8A4"></a-plane>
+    <div id="controls">
+        <button id="rightBtn">Walk Right</button>
+        <button id="jumpBtn">Jump</button>
+        <button id="tryAgainBtn" style="display: none;">Try Again</button>
+    </div>
 
-    <!-- Character -->
-    <a-box id="character" position="0 0.5 0" depth="0.5" height="0.5" width="0.5" color="#FF5733"></a-box>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
 
-    <!-- Platforms -->
-    <a-box position="-1 0.25 -1" depth="2" height="0.5" width="1" color="#3498DB"></a-box>
-    <a-box position="1 0.25 -2" depth="2" height="0.5" width="1" color="#E74C3C"></a-box>
-    <a-box position="-2 0.25 -3" depth="2" height="0.5" width="1" color="#2ECC71"></a-box>
-  </a-scene>
+        // Game settings
+        canvas.width = 800;
+        canvas.height = 400;
 
-  <script>
-    const character = document.querySelector('#character');
+        let score = 0;
+        let gameOver = false; // Flag to check if game is over
 
-    // Voice Capture Setup
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-      const microphone = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      microphone.connect(analyser);
-      analyser.fftSize = 512;
+        // Player settings (Mario)
+        let player = {
+            x: 50,
+            y: canvas.height - 150,
+            width: 50,
+            height: 50,
+            speed: 3, // Step size
+            velocityX: 0,
+            velocityY: 0,
+            jumpPower: -12,
+            forwardJumpSpeed: 4, // Speed added to forward direction during jump
+            grounded: false
+        };
 
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        // Platform settings
+        const platformHeight = 20;
+        const platformWidth = 100;
+        let platforms = [
+            { x: 200, y: 250, width: platformWidth, height: platformHeight },
+            { x: 400, y: 200, width: platformWidth, height: platformHeight },
+            { x: 600, y: 150, width: platformWidth, height: platformHeight }
+        ];
 
-      function updateCharacter() {
-        analyser.getByteFrequencyData(dataArray);
-        const volume = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+        // Gravity
+        const gravity = 0.5;
 
-        // Map volume to jump height
-        const jumpHeight = Math.min(volume / 30, 3); // Scale and cap the jump height
+        // Background movement speed (30% of player's speed)
+        let backgroundSpeed = player.speed * 0.3;
 
-        // Animate jump
-        character.setAttribute('animation', {
-          property: 'position',
-          to: `0 ${jumpHeight + 0.5} 0`,
-          dur: 300,
-          easing: 'easeOutCubic',
+        // Game loop
+        function gameLoop() {
+            if (gameOver) return; // Stop the game loop if the game is over
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Apply gravity
+            if (!player.grounded) {
+                player.velocityY += gravity;
+            }
+
+            // Update player position
+            player.x += player.velocityX;
+            player.y += player.velocityY;
+
+            // Prevent player from going beyond the left or right of the screen
+            if (player.x < 0) {
+                player.x = 0; // Prevent moving past the left edge
+            }
+            if (player.x + player.width > canvas.width) {
+                player.x = canvas.width - player.width; // Prevent moving past the right edge
+            }
+
+            // Move platforms towards the left (background moves slower)
+            platforms.forEach(plat => {
+                plat.x -= player.speed; // Move platforms leftward to simulate progress
+            });
+
+            // Generate new platforms when the player moves far enough
+            if (platforms[platforms.length - 1].x < canvas.width - 200) {
+                generateNewPlatform();
+            }
+
+            // Remove platforms that move off-screen
+            platforms = platforms.filter(plat => plat.x + plat.width > 0);
+
+            // Collision with platforms
+            handleCollisions();
+
+            // Check if the player falls below the canvas height (Game Over condition)
+            if (player.y + player.height > canvas.height) {
+                gameOver = true;
+                showGameOver(); // Show Game Over screen
+            }
+
+            // Draw background (moving slower)
+            ctx.fillStyle = "#87CEEB"; // Sky blue color for background
+            ctx.fillRect(-backgroundSpeed, 0, canvas.width, canvas.height); // Background moves slower
+
+            // Draw player (Mario)
+            ctx.fillStyle = "red"; // Mario's color
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+
+            // Draw platforms
+            ctx.fillStyle = "green";
+            platforms.forEach(plat => {
+                ctx.fillRect(plat.x, plat.y, plat.width, plat.height);
+            });
+
+            // Request next frame
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Generate a new platform at a random height
+        function generateNewPlatform() {
+            const platformY = Math.random() * (canvas.height - 100) + 100; // Random y position for platform
+            const newPlatform = {
+                x: canvas.width,
+                y: platformY,
+                width: platformWidth,
+                height: platformHeight
+            };
+            platforms.push(newPlatform);
+        }
+
+        // Player movement control using buttons (right walk only)
+        document.getElementById('rightBtn').addEventListener('click', () => {
+            if (!gameOver) {
+                player.velocityX = player.speed; // Move right by one step
+                setTimeout(() => {
+                    player.velocityX = 0; // Stop movement after one step
+                }, 100); // Delay to move a single step
+            }
         });
 
-        setTimeout(() => {
-          character.setAttribute('animation', {
-            property: 'position',
-            to: '0 0.5 0',
-            dur: 300,
-            easing: 'easeInCubic',
-          });
-        }, 300);
-      }
+        // Jump functionality with forward movement
+        document.getElementById('jumpBtn').addEventListener('click', () => {
+            if (!gameOver && player.grounded) {
+                player.velocityY = player.jumpPower; // Jump upward
+                player.velocityX = player.forwardJumpSpeed; // Move forward while jumping
+                player.grounded = false; // Make sure player is not grounded when jumping
+            }
+        });
 
-      setInterval(updateCharacter, 200); // Check audio levels every 200ms
-    }).catch((err) => {
-      console.error('Microphone access denied:', err);
-    });
-  </script>
+        // Handle player collisions with platforms
+        function handleCollisions() {
+            player.grounded = false;
+
+            platforms.forEach(plat => {
+                if (player.x + player.width > plat.x && player.x < plat.x + plat.width &&
+                    player.y + player.height > plat.y && player.y + player.height < plat.y + plat.height &&
+                    player.velocityY >= 0) {
+                    player.y = plat.y - player.height;
+                    player.velocityY = 0;
+                    player.velocityX = 0; // Stop forward movement after landing
+                    player.grounded = true;
+                }
+            });
+
+            // Prevent the player from falling off the screen
+            if (player.y + player.height > canvas.height) {
+                player.y = canvas.height - player.height;
+                player.velocityY = 0;
+            }
+        }
+
+        // Restart the game after clicking "Try Again"
+        document.getElementById('tryAgainBtn').addEventListener('click', () => {
+            // Reset game state
+            gameOver = false;
+            player.x = 50;
+            player.y = canvas.height - 150;
+            player.velocityX = 0;
+            player.velocityY = 0;
+            player.grounded = false;
+            platforms = [
+                { x: 200, y: 250, width: platformWidth, height: platformHeight },
+                { x: 400, y: 200, width: platformWidth, height: platformHeight },
+                { x: 600, y: 150, width: platformWidth, height: platformHeight }
+            ];
+            gameLoop(); // Restart the game loop
+            document.getElementById('tryAgainBtn').style.display = 'none'; // Hide the Try Again button
+        });
+
+        // Display "Game Over" screen
+        function showGameOver() {
+            ctx.fillStyle = "black";
+            ctx.font = "40px Arial";
+            ctx.fillText("GAME OVER", canvas.width / 2 - 100, canvas.height / 2 - 20);
+            
+            // Display "Try Again" button
+            document.getElementById('tryAgainBtn').style.display = 'block';
+        }
+
+        // Start the game loop
+        gameLoop();
+    </script>
 </body>
 </html>
